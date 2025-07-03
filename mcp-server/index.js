@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+require('dotenv').config();
+
+console.log('MCP Server Directory');
+console.log('===================');
+console.log('');
+console.log('This directory contains MCP (Model Context Protocol) servers for database access.');
+console.log('');
+console.log('Files:');
+console.log('- mcp-mysql-server.js: True MCP protocol server implementation');
+console.log('- package.json: Dependencies including MCP SDK');
+console.log('');
+console.log('Usage:');
+console.log('The main server automatically starts MCP servers as needed.');
+console.log('Environment variables required:');
+console.log('');
+console.log('For Product Database:');
+console.log('- PRODUCT_DB_HOST');
+console.log('- PRODUCT_DB_USER');
+console.log('- PRODUCT_DB_PASSWORD');
+console.log('- PRODUCT_DB_DATABASE');
+console.log('');
+console.log('For FAQ Database:');
+console.log('- FAQ_DB_HOST');
+console.log('- FAQ_DB_USER');
+console.log('- FAQ_DB_PASSWORD');
+console.log('- FAQ_DB_DATABASE');
+console.log('');
+console.log('Debug logging: Set DEBUG=true');
+console.log('');
+console.log('The MCP servers are automatically managed by the main server.');
+console.log('No manual startup required.');
