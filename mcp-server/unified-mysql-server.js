@@ -19,7 +19,7 @@ const logServerStep = (step, data = null) => {
 class UnifiedMySQLMCPServer {
   constructor() {
     logServerStep('SERVER_CONSTRUCTOR_START');
-    
+
     this.server = new Server({
       name: 'unified-mysql-mcp-server',
       version: '1.0.0',
@@ -28,13 +28,13 @@ class UnifiedMySQLMCPServer {
         tools: {},
       },
     });
-    
+
     logServerStep('SERVER_INSTANCE_CREATED');
-    
+
     this.databases = new Map();
     this.setupDatabases();
     this.setupHandlers();
-    
+
     logServerStep('SERVER_CONSTRUCTOR_COMPLETE', {
       databaseCount: this.databases.size
     });
@@ -42,9 +42,9 @@ class UnifiedMySQLMCPServer {
 
   setupDatabases() {
     // Setup Product Database
-    if (process.env.PRODUCT_DB_HOST && process.env.PRODUCT_DB_USER && 
-        process.env.PRODUCT_DB_PASSWORD && process.env.PRODUCT_DB_DATABASE) {
-      
+    if (process.env.PRODUCT_DB_HOST && process.env.PRODUCT_DB_USER &&
+      process.env.PRODUCT_DB_PASSWORD && process.env.PRODUCT_DB_DATABASE) {
+
       const productPool = mysql.createPool({
         host: process.env.PRODUCT_DB_HOST,
         user: process.env.PRODUCT_DB_USER,
@@ -63,7 +63,7 @@ class UnifiedMySQLMCPServer {
           database: process.env.PRODUCT_DB_DATABASE
         }
       });
-      
+
       debug('Product database configured', {
         host: process.env.PRODUCT_DB_HOST,
         database: process.env.PRODUCT_DB_DATABASE
@@ -71,9 +71,9 @@ class UnifiedMySQLMCPServer {
     }
 
     // Setup FAQ Database  
-    if (process.env.FAQ_DB_HOST && process.env.FAQ_DB_USER && 
-        process.env.FAQ_DB_PASSWORD && process.env.FAQ_DB_DATABASE) {
-      
+    if (process.env.FAQ_DB_HOST && process.env.FAQ_DB_USER &&
+      process.env.FAQ_DB_PASSWORD && process.env.FAQ_DB_DATABASE) {
+
       const faqPool = mysql.createPool({
         host: process.env.FAQ_DB_HOST,
         user: process.env.FAQ_DB_USER,
@@ -92,7 +92,7 @@ class UnifiedMySQLMCPServer {
           database: process.env.FAQ_DB_DATABASE
         }
       });
-      
+
       debug('FAQ database configured', {
         host: process.env.FAQ_DB_HOST,
         database: process.env.FAQ_DB_DATABASE
@@ -108,9 +108,9 @@ class UnifiedMySQLMCPServer {
     // Handle tool list requests
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       debug('Tools list requested');
-      
+
       const tools = [];
-      
+
       // Create tools for each configured database
       for (const [key, db] of this.databases) {
         tools.push({
@@ -128,16 +128,16 @@ class UnifiedMySQLMCPServer {
           },
         });
       }
-      
+
       debug('Returning tools', { toolCount: tools.length, toolNames: tools.map(t => t.name) });
-      
+
       return { tools };
     });
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      
+
       logServerStep('TOOL_CALL_RECEIVED', {
         toolName: name,
         arguments: args,
@@ -150,20 +150,20 @@ class UnifiedMySQLMCPServer {
         logServerStep('INVALID_TOOL_NAME', { toolName: name });
         throw new Error(`Invalid tool name format: ${name}`);
       }
-      
+
       const dbKey = match[1];
       const database = this.databases.get(dbKey);
-      
+
       if (!database) {
-        logServerStep('DATABASE_NOT_FOUND', { 
-          dbKey, 
-          availableDatabases: Array.from(this.databases.keys()) 
+        logServerStep('DATABASE_NOT_FOUND', {
+          dbKey,
+          availableDatabases: Array.from(this.databases.keys())
         });
         throw new Error(`Database not configured: ${dbKey}`);
       }
 
       const { query } = args;
-      
+
       if (!query) {
         logServerStep('MISSING_QUERY', { toolName: name });
         throw new Error('Query is required');
@@ -186,11 +186,11 @@ class UnifiedMySQLMCPServer {
           query: query.substring(0, 100) + (query.length > 100 ? '...' : ''),
           queryLength: query.length
         });
-        
+
         const queryStartTime = Date.now();
         const [rows] = await database.pool.execute(query);
         const queryEndTime = Date.now();
-        
+
         logServerStep('DATABASE_QUERY_SUCCESS', {
           database: dbKey,
           databaseName: database.name,
@@ -213,12 +213,12 @@ class UnifiedMySQLMCPServer {
             }
           ]
         };
-        
+
         logServerStep('TOOL_CALL_SUCCESS', {
           toolName: name,
           responseSize: response.content[0].text.length
         });
-        
+
         return response;
       } catch (error) {
         logServerStep('DATABASE_QUERY_ERROR', {
@@ -243,12 +243,12 @@ class UnifiedMySQLMCPServer {
             }
           ]
         };
-        
+
         logServerStep('TOOL_CALL_ERROR', {
           toolName: name,
           errorMessage: error.message
         });
-        
+
         return errorResponse;
       }
     });
@@ -256,16 +256,16 @@ class UnifiedMySQLMCPServer {
 
   async start() {
     logServerStep('SERVER_START_ATTEMPT');
-    
+
     try {
       const transport = new StdioServerTransport();
-      
+
       logServerStep('TRANSPORT_CREATED');
-      
+
       const startTime = Date.now();
       await this.server.connect(transport);
       const endTime = Date.now();
-      
+
       logServerStep('SERVER_STARTED_SUCCESS', {
         databaseCount: this.databases.size,
         databases: Array.from(this.databases.keys()),
@@ -282,7 +282,7 @@ class UnifiedMySQLMCPServer {
 
   async stop() {
     debug('Shutting down unified MCP server');
-    
+
     // Close all database connections
     for (const [key, database] of this.databases) {
       try {
@@ -292,7 +292,7 @@ class UnifiedMySQLMCPServer {
         console.error(`Error closing database ${key}:`, error);
       }
     }
-    
+
     debug('Unified MCP Server stopped');
   }
 }

@@ -21,19 +21,19 @@ class UnifiedMCPClientManager {
 
   async initialize() {
     logMcpStep('MCP_INITIALIZATION_START');
-    
+
     // Check if we have at least one database configured
-    const hasProductDB = process.env.PRODUCT_DB_HOST && process.env.PRODUCT_DB_USER && 
-                        process.env.PRODUCT_DB_PASSWORD && process.env.PRODUCT_DB_DATABASE;
-    const hasFaqDB = process.env.FAQ_DB_HOST && process.env.FAQ_DB_USER && 
-                     process.env.FAQ_DB_PASSWORD && process.env.FAQ_DB_DATABASE;
-    
+    const hasProductDB = process.env.PRODUCT_DB_HOST && process.env.PRODUCT_DB_USER &&
+      process.env.PRODUCT_DB_PASSWORD && process.env.PRODUCT_DB_DATABASE;
+    const hasFaqDB = process.env.FAQ_DB_HOST && process.env.FAQ_DB_USER &&
+      process.env.FAQ_DB_PASSWORD && process.env.FAQ_DB_DATABASE;
+
     logMcpStep('MCP_DATABASE_CHECK', {
       hasProductDB,
       hasFaqDB,
       totalConfigured: (hasProductDB ? 1 : 0) + (hasFaqDB ? 1 : 0)
     });
-    
+
     if (!hasProductDB && !hasFaqDB) {
       logMcpStep('MCP_NO_DATABASES_CONFIGURED');
       console.warn('No databases configured, skipping MCP server initialization');
@@ -43,12 +43,12 @@ class UnifiedMCPClientManager {
     try {
       await this.startUnifiedMCPServer();
       await this.discoverTools();
-      
+
       logMcpStep('MCP_INITIALIZATION_SUCCESS', {
         toolCount: this.availableTools.length,
         tools: this.availableTools.map(t => t.name)
       });
-      
+
       return this.availableTools.map(t => t.name);
     } catch (error) {
       logMcpStep('MCP_INITIALIZATION_FAILED', {
@@ -61,20 +61,20 @@ class UnifiedMCPClientManager {
 
   async startUnifiedMCPServer() {
     logMcpStep('MCP_SERVER_START_ATTEMPT');
-    
+
     const env = {
       ...process.env,
       DEBUG: process.env.DEBUG
     };
 
     const serverPath = path.join(__dirname, '../mcp-server/unified-mysql-server.js');
-    
+
     logMcpStep('MCP_SERVER_PATH_RESOLVED', {
       serverPath,
       pathExists: require('fs').existsSync(serverPath),
       currentDir: __dirname
     });
-    
+
     // Create MCP client
     logMcpStep('MCP_CLIENT_CREATING');
     this.client = new Client({
@@ -95,14 +95,14 @@ class UnifiedMCPClientManager {
     });
 
     logMcpStep('MCP_TRANSPORT_CREATED');
-    
+
     logMcpStep('MCP_CLIENT_CONNECTING');
     const startTime = Date.now();
-    
+
     try {
       await this.client.connect(transport);
       const endTime = Date.now();
-      
+
       logMcpStep('MCP_SERVER_CONNECTED', {
         connectionTimeMs: endTime - startTime
       });
@@ -117,7 +117,7 @@ class UnifiedMCPClientManager {
 
   async discoverTools() {
     logMcpStep('MCP_TOOL_DISCOVERY_START');
-    
+
     if (!this.client) {
       throw new Error('MCP client not initialized');
     }
@@ -126,15 +126,15 @@ class UnifiedMCPClientManager {
       const startTime = Date.now();
       const result = await this.client.request('tools/list', {});
       const endTime = Date.now();
-      
+
       this.availableTools = result.tools || [];
-      
+
       logMcpStep('MCP_TOOL_DISCOVERY_SUCCESS', {
         discoveryTimeMs: endTime - startTime,
         toolCount: this.availableTools.length,
-        tools: this.availableTools.map(t => ({ 
-          name: t.name, 
-          description: t.description.substring(0, 100) + '...' 
+        tools: this.availableTools.map(t => ({
+          name: t.name,
+          description: t.description.substring(0, 100) + '...'
         }))
       });
     } catch (error) {
@@ -171,7 +171,7 @@ class UnifiedMCPClientManager {
 
     try {
       const startTime = Date.now();
-      
+
       logMcpStep('MCP_TOOL_CALL_START', {
         toolName,
         requestPayload: {
@@ -179,12 +179,12 @@ class UnifiedMCPClientManager {
           arguments: args
         }
       });
-      
+
       const result = await this.client.request('tools/call', {
         name: toolName,
         arguments: args
       });
-      
+
       const endTime = Date.now();
 
       logMcpStep('MCP_TOOL_EXECUTION_SUCCESS', {
@@ -208,7 +208,7 @@ class UnifiedMCPClientManager {
 
   async shutdown() {
     logMcpStep('MCP_SHUTDOWN_START');
-    
+
     if (this.client) {
       try {
         await this.client.close();
@@ -220,7 +220,7 @@ class UnifiedMCPClientManager {
       }
       this.client = null;
     }
-    
+
     this.availableTools = [];
   }
 }

@@ -7,7 +7,7 @@ console.log('');
 console.log('This directory contains MCP (Model Context Protocol) servers for database access.');
 console.log('');
 console.log('Files:');
-console.log('- mcp-mysql-server.js: True MCP protocol server implementation');
+console.log('- unified-mysql-server.js: True MCP protocol server implementation');
 console.log('- package.json: Dependencies including MCP SDK');
 console.log('');
 console.log('Usage:');
