@@ -1,28 +1,45 @@
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
-const path = require('path');
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import path from 'path';
+import fs from 'fs';
 
 const DEBUG = process.env.DEBUG === 'true';
-const debug = (message, data = null) => {
+const debug = (message: string, data: any = null) => {
   if (DEBUG) {
     console.log(`[UNIFIED MCP CLIENT DEBUG] ${new Date().toISOString()} - ${message}`, data || '');
   }
 };
 
-const logMcpStep = (step, data = null) => {
+const logMcpStep = (step: string, data: any = null) => {
   console.log(`[MCP] ${new Date().toISOString()} - ${step}`, data ? JSON.stringify(data, null, 2) : '');
 };
 
+interface Tool {
+  name: string;
+  description?: string;
+  inputSchema?: any;
+}
+
+interface McpResultContent {
+  type: string;
+  text?: string;
+}
+
+export interface McpResult {
+  content?: McpResultContent[];
+}
+
 class UnifiedMCPClientManager {
+  private client: Client | null = null;
+  private availableTools: Tool[] = [];
+
   constructor() {
-    this.client = null;
-    this.availableTools = [];
+    // Constructor logic
   }
 
-  async initialize() {
+  async initialize(): Promise<string[]> {
     logMcpStep('MCP_INITIALIZATION_START');
 
-    // Check if we have at least one database configured
     const hasProductDB = process.env.PRODUCT_DB_HOST && process.env.PRODUCT_DB_USER &&
       process.env.PRODUCT_DB_PASSWORD && process.env.PRODUCT_DB_DATABASE;
     const hasFaqDB = process.env.FAQ_DB_HOST && process.env.FAQ_DB_USER &&
@@ -50,7 +67,7 @@ class UnifiedMCPClientManager {
       });
 
       return this.availableTools.map(t => t.name);
-    } catch (error) {
+    } catch (error: any) {
       logMcpStep('MCP_INITIALIZATION_FAILED', {
         error: error.message,
         stack: error.stack
@@ -59,24 +76,21 @@ class UnifiedMCPClientManager {
     }
   }
 
-  async startUnifiedMCPServer() {
+  private async startUnifiedMCPServer() {
     logMcpStep('MCP_SERVER_START_ATTEMPT');
 
-    const env = {
-      ...process.env,
-      DEBUG: process.env.DEBUG
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      DEBUG: process.env.DEBUG || 'false'
     };
 
-    const serverPath = path.join(__dirname, '../mcp-server/unified-mysql-server.js');
+    const serverDir = path.resolve(__dirname, '../../mcp-server');
 
-    logMcpStep('MCP_SERVER_PATH_RESOLVED', {
-      serverPath,
-      pathExists: require('fs').existsSync(serverPath),
-      currentDir: __dirname
+    logMcpStep('MCP_SERVER_DIR_RESOLVED', {
+      serverDir,
+      pathExists: fs.existsSync(serverDir)
     });
 
-    // Create MCP client
-    logMcpStep('MCP_CLIENT_CREATING');
     this.client = new Client({
       name: 'sql-chat-unified-client',
       version: '1.0.0'
@@ -86,12 +100,11 @@ class UnifiedMCPClientManager {
 
     logMcpStep('MCP_CLIENT_CREATED');
 
-    // Create transport with proper spawn configuration
-    logMcpStep('MCP_TRANSPORT_CREATING');
     const transport = new StdioClientTransport({
-      command: 'node',
-      args: [serverPath],
-      env: env
+      command: 'npm',
+      args: ['start'],
+      env: env,
+      cwd: serverDir
     });
 
     logMcpStep('MCP_TRANSPORT_CREATED');
@@ -106,7 +119,7 @@ class UnifiedMCPClientManager {
       logMcpStep('MCP_SERVER_CONNECTED', {
         connectionTimeMs: endTime - startTime
       });
-    } catch (connectError) {
+    } catch (connectError: any) {
       logMcpStep('MCP_CLIENT_CONNECT_FAILED', {
         error: connectError.message,
         stack: connectError.stack
@@ -115,7 +128,7 @@ class UnifiedMCPClientManager {
     }
   }
 
-  async discoverTools() {
+  private async discoverTools() {
     logMcpStep('MCP_TOOL_DISCOVERY_START');
 
     if (!this.client) {
@@ -124,20 +137,20 @@ class UnifiedMCPClientManager {
 
     try {
       const startTime = Date.now();
-      const result = await this.client.request('tools/list', {});
+      const result = await this.client.listTools();
       const endTime = Date.now();
 
-      this.availableTools = result.tools || [];
+      this.availableTools = result.tools as Tool[] || [];
 
       logMcpStep('MCP_TOOL_DISCOVERY_SUCCESS', {
         discoveryTimeMs: endTime - startTime,
         toolCount: this.availableTools.length,
         tools: this.availableTools.map(t => ({
           name: t.name,
-          description: t.description.substring(0, 100) + '...'
+          description: t.description?.substring(0, 100) + '...' || ''
         }))
       });
-    } catch (error) {
+    } catch (error: any) {
       logMcpStep('MCP_TOOL_DISCOVERY_FAILED', {
         error: error.message,
         stack: error.stack
@@ -146,7 +159,7 @@ class UnifiedMCPClientManager {
     }
   }
 
-  async executeTool(toolName, args) {
+  async executeTool(toolName: string, args: any): Promise<McpResult> {
     if (!this.client) {
       throw new Error('MCP client not initialized');
     }
@@ -159,7 +172,6 @@ class UnifiedMCPClientManager {
       }
     });
 
-    // Verify tool exists
     const tool = this.availableTools.find(t => t.name === toolName);
     if (!tool) {
       logMcpStep('MCP_TOOL_NOT_FOUND', {
@@ -180,10 +192,10 @@ class UnifiedMCPClientManager {
         }
       });
 
-      const result = await this.client.request('tools/call', {
+      const result = await this.client.callTool({
         name: toolName,
         arguments: args
-      });
+      }) as McpResult;
 
       const endTime = Date.now();
 
@@ -191,17 +203,49 @@ class UnifiedMCPClientManager {
         toolName,
         executionTimeMs: endTime - startTime,
         hasContent: !!(result.content && result.content.length > 0),
-        contentLength: result.content?.length || 0,
+        contentLength: result.content?.[0]?.text?.length || 0,
         contentPreview: result.content?.[0]?.text?.substring(0, 200) + '...' || 'No content'
       });
 
       return result;
-    } catch (error) {
+    } catch (error: any) {
       logMcpStep('MCP_TOOL_EXECUTION_FAILED', {
         toolName,
         error: error.message,
         stack: error.stack
       });
+      throw error;
+    }
+  }
+
+  async fetchDatabaseSchema(dbKey: string): Promise<any> {
+    if (!this.client) {
+      throw new Error('MCP client not initialized');
+    }
+
+    logMcpStep('FETCH_SCHEMA_START', { dbKey });
+
+    try {
+      const result = await this.client.callTool({
+        name: 'get_database_schema',
+        arguments: { dbKey }
+      }) as McpResult;
+
+      if (result.content && result.content.length > 0 && result.content[0].text) {
+        const parsedContent = JSON.parse(result.content[0].text);
+        if (parsedContent.success) {
+          logMcpStep('FETCH_SCHEMA_SUCCESS', { dbKey, tableCount: Object.keys(parsedContent.schema).length });
+          return parsedContent.schema;
+        } else {
+          logMcpStep('FETCH_SCHEMA_ERROR_RESPONSE', { dbKey, error: parsedContent.error });
+          throw new Error(`Failed to fetch schema for ${dbKey}: ${parsedContent.error}`);
+        }
+      } else {
+        logMcpStep('FETCH_SCHEMA_EMPTY_RESPONSE', { dbKey });
+        throw new Error(`Empty response when fetching schema for ${dbKey}`);
+      }
+    } catch (error: any) {
+      logMcpStep('FETCH_SCHEMA_FAILED', { dbKey, error: error.message, stack: error.stack });
       throw error;
     }
   }
@@ -213,7 +257,7 @@ class UnifiedMCPClientManager {
       try {
         await this.client.close();
         logMcpStep('MCP_SHUTDOWN_SUCCESS');
-      } catch (error) {
+      } catch (error: any) {
         logMcpStep('MCP_SHUTDOWN_ERROR', {
           error: error.message
         });
@@ -225,4 +269,4 @@ class UnifiedMCPClientManager {
   }
 }
 
-module.exports = UnifiedMCPClientManager;
+export default UnifiedMCPClientManager;

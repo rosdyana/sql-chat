@@ -2,20 +2,27 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "main": "dist/index.js",
+    "scripts": {
+        "start": "node dist/index.js",
+        "build": "tsc"
+    },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
+    "@modelcontextprotocol/sdk": "^1.15.0",
     "axios": "^1.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mysql2": "^3.14.1",
     "openai": "^4.47.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.12",
+    "typescript": "^5.4.5"
   }
 }

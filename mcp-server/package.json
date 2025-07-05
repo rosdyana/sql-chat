@@ -2,16 +2,22 @@
   "name": "mcp-server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "main": "dist/unified-mysql-server.js",
+    "scripts": {
+        "start": "node dist/unified-mysql-server.js",
+        "build": "tsc"
+    },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
+    "@modelcontextprotocol/sdk": "1.15.0",
     "dotenv": "^16.4.5",
-    "mysql2": "^3.6.0"
+    "mysql2": "^3.6.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "typescript": "^5.4.5"
   }
 }

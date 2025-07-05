@@ -13,7 +13,7 @@ function App() {
     setInput('');
 
     try {
-      const response = await axios.post('http://localhost:3001/api/chat', {
+      const response = await axios.post('http://localhost:3055/api/chat', {
         message: input,
       });
 
