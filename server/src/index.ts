@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { AzureOpenAI } from 'openai';
-import { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionMessageToolCall } from 'openai/resources/chat/completions';
+import { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionMessageToolCall, ChatCompletionAssistantMessageParam } from 'openai/resources/chat/completions';
 import UnifiedMCPClientManager, { McpResult } from './unified-mcp-client';
 import path from 'path';
 import fs from 'fs';
@@ -64,40 +64,52 @@ const SCHEMA_GUIDELINES = `
 
 function formatSchemaForLLM(schemaName: string, schema: any): string {
   if (!schema || Object.keys(schema).length === 0) {
-    return `\nSchema for ${schemaName} is not available.`;
+    return `\nSchema for ${schemaName} is not available.`
   }
 
-  let schemaString = `\n### ${schemaName} Database Schema\n`;
-  schemaString += SCHEMA_GUIDELINES;
+  let schemaString = `\n### ${schemaName} Database Schema\n`
+  schemaString += SCHEMA_GUIDELINES
 
   for (const tableName in schema) {
-    schemaString += `#### Table: ${tableName}\n`;
-    schemaString += `| Column Name | Data Type | Primary Key | Foreign Key (References) |\n`;
-    schemaString += `|-------------|-----------|-------------|--------------------------|\n`;
+    schemaString += `#### Table: ${tableName}\n`
+    schemaString += `| Column Name | Data Type | Primary Key | Foreign Key (References) |\n`
+    schemaString += `|-------------|-----------|-------------|--------------------------|\n`
     for (const columnName in schema[tableName].columns) {
-      const column = schema[tableName].columns[columnName];
-      const isPrimaryKey = column.isPrimaryKey ? 'Yes' : 'No';
-      let foreignKeyInfo = '';
-      const fk = schema[tableName].foreignKeys.find((fk: any) => fk.columnName === columnName);
+      const column = schema[tableName].columns[columnName]
+      const isPrimaryKey = column.isPrimaryKey ? 'Yes' : 'No'
+      let foreignKeyInfo = ''
+      const fk = schema[tableName].foreignKeys.find((fk: any) => fk.columnName === columnName)
       if (fk) {
-        foreignKeyInfo = `${fk.referencedTable}(${fk.referencedColumn})`;
+        foreignKeyInfo = `${fk.referencedTable}(${fk.referencedColumn})`
       }
-      schemaString += `| ${columnName} | ${column.type} | ${isPrimaryKey} | ${foreignKeyInfo} |\n`;
+      schemaString += `| ${columnName} | ${column.type} | ${isPrimaryKey} | ${foreignKeyInfo} |\n`
     }
     
     if (schema[tableName].foreignKeys.length > 0) {
-      schemaString += `\n**Relationships (JOIN conditions):**\n`;
+      schemaString += `\n**Relationships (JOIN conditions):**\n`
       schema[tableName].foreignKeys.forEach((fk: any) => {
         schemaString += `- \`${tableName}.${fk.columnName}\` JOINs \`${fk.referencedTable}.${fk.referencedColumn}\`\n`;
-      });
+      })
     }
-    schemaString += `\n`;
+    schemaString += `\n`
   }
-  return schemaString;
+  return schemaString
+}
+
+function extractContentText(content: ChatCompletionMessageParam['content']): string | null {
+  if (typeof content === 'string') {
+    return content
+  } else if (Array.isArray(content)) {
+    return content.map(part => ('text' in part ? part.text : '')).join('')
+  } else {
+    return null
+  }
 }
 
 // --- HTTP Server & Health Check ---
+
 const server = http.createServer((req, res) => {
+  server.setMaxListeners(20); // Increase listener limit to 20
   if (req.url === '/health' && req.method === 'GET') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -147,6 +159,9 @@ async function handleChatMessage(socket: Socket, message: string) {
   }
 
   try {
+    // Clear previous content for a new user query
+    socket.emit('clearChatChunks');
+
     const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: message }];
     
     const productSchema = databaseSchemas.product ? formatSchemaForLLM('product', databaseSchemas.product) : '';
@@ -176,11 +191,13 @@ async function handleChatMessage(socket: Socket, message: string) {
     let finalContent: string | null = null;
 
     while (retries <= MAX_RETRIES) {
-      const response = await callOpenAI(requestId, socket, messages, tools, retries);
-      const responseMessage = response.choices[0].message;
+      // Clear previous content for a new attempt
+      socket.emit('clearChatChunks'); 
+      const responseMessage = await callOpenAI(requestId, socket, messages, tools, retries);
       messages.push(responseMessage);
 
-      if (responseMessage.tool_calls) {
+      // Check if responseMessage is an assistant message with tool_calls
+      if (responseMessage.role === 'assistant' && responseMessage.tool_calls) {
         const toolCalls = responseMessage.tool_calls;
         socket.emit('status', { message: `Executing tools: ${toolCalls.map(tc => tc.function.name).join(', ')}` });
         
@@ -196,30 +213,27 @@ async function handleChatMessage(socket: Socket, message: string) {
           } else {
             logError('Max retries reached for tool execution.', { requestId });
             socket.emit('status', { message: 'Max retries reached. Please refine your query.' });
-            finalContent = "I was unable to execute the required tools after multiple attempts. Please try rephrasing your question.";
+            socket.emit('finalResponse', { content: "I was unable to execute the required tools after multiple attempts. Please try rephrasing your question." });
             break; // Exit loop
           }
         }
         
         // If tools succeeded, make a follow-up call to get a natural language response
         socket.emit('status', { message: 'Synthesizing final answer...' });
-        const finalResponse = await callOpenAI(requestId, socket, messages, tools, -1); // -1 indicates a final call
-        finalContent = finalResponse.choices[0].message.content;
+        // Clear previous content for the final response
+        socket.emit('clearChatChunks');
+        const finalResponseMessage = await callOpenAI(requestId, socket, messages, tools, -1); // -1 indicates a final call
+        finalContent = extractContentText(finalResponseMessage.content);
         break; // Exit loop
 
       } else {
-        finalContent = responseMessage.content;
+        finalContent = extractContentText(responseMessage.content);
         break; // No tools, exit loop
       }
     }
 
     logStep('FINAL_RESPONSE', requestId, { responseLength: finalContent?.length, hasContent: !!finalContent });
-    if (finalContent) {
-      socket.emit('finalResponse', { content: finalContent });
-    } else {
-      logError('Empty final response from LLM', { requestId });
-      socket.emit('error', { message: 'Received empty response from LLM.' });
-    }
+    socket.emit('finalResponse', { content: finalContent || "No response generated." });
 
     logStep('REQUEST_COMPLETED', requestId, { success: true });
 
@@ -230,22 +244,78 @@ async function handleChatMessage(socket: Socket, message: string) {
   }
 }
 
-async function callOpenAI(requestId: string, socket: Socket, messages: ChatCompletionMessageParam[], tools: ChatCompletionTool[], attempt: number) {
+async function callOpenAI(requestId: string, socket: Socket, messages: ChatCompletionMessageParam[], tools: ChatCompletionTool[], attempt: number): Promise<ChatCompletionAssistantMessageParam> {
   logStep('LLM_CALL_START', requestId, { attempt: attempt + 1, messageCount: messages.length });
   socket.emit('status', { message: attempt === -1 ? 'Generating final response...' : `Thinking (attempt ${attempt + 1})...` });
 
-  const response = await openai.chat.completions.create({
+  const stream = await openai.chat.completions.create({
     model: process.env.AZURE_OPENAI_API_DEPLOYMENT as string,
     messages: messages,
     tools: tools,
     tool_choice: 'auto',
+    stream: true, // Enable streaming
   });
 
+  let fullContent: string = '';
+  let fullToolCalls: ChatCompletionMessageToolCall[] = [];
+  let lastFinishReason: string | null | undefined = null;
+
+  for await (const chunk of stream) {
+    const choice = chunk.choices[0];
+    const delta = choice?.delta;
+
+    if (typeof delta?.content === 'string') {
+      fullContent += delta.content;
+      socket.emit('chatChunk', { content: delta.content }); // Emit content chunks
+      debug(`Emitted chatChunk: "${delta.content}"`); // ADDED LOG
+    }
+
+    if (delta?.tool_calls) {
+      for (const toolCallDelta of delta.tool_calls) {
+        if (toolCallDelta.index !== undefined) {
+          if (!fullToolCalls[toolCallDelta.index]) {
+            fullToolCalls[toolCallDelta.index] = {
+              id: toolCallDelta.id || '',
+              type: 'function',
+              function: {
+                name: toolCallDelta.function?.name || '',
+                arguments: toolCallDelta.function?.arguments || '',
+              },
+            };
+          } else {
+            if (toolCallDelta.function?.arguments) {
+              fullToolCalls[toolCallDelta.index].function.arguments += toolCallDelta.function.arguments;
+            }
+          }
+          if (toolCallDelta.id) {
+            fullToolCalls[toolCallDelta.index].id = toolCallDelta.id;
+          }
+          if (toolCallDelta.function?.name) {
+            fullToolCalls[toolCallDelta.index].function.name = toolCallDelta.function.name;
+          }
+        }
+      }
+    }
+    if (choice?.finish_reason) {
+      lastFinishReason = choice.finish_reason;
+    }
+  }
+
+  let responseMessage: ChatCompletionAssistantMessageParam = {
+    role: 'assistant',
+    content: fullContent || null,
+  };
+
+  if (fullToolCalls.length > 0) {
+    responseMessage.tool_calls = fullToolCalls;
+  }
+
   logStep('LLM_RESPONSE_RECEIVED', requestId, {
-    finishReason: response.choices[0].finish_reason,
-    hasToolCalls: !!response.choices[0].message.tool_calls,
+    finishReason: lastFinishReason,
+    hasToolCalls: fullToolCalls.length > 0,
   });
-  return response;
+
+  return responseMessage;
 }
 
 async function executeToolCalls(requestId: string, socket: Socket, toolCalls: readonly ChatCompletionMessageToolCall[]) {

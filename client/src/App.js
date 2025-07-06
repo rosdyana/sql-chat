@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const SERVER_URL = 'http://localhost:3055'; // Ensure this matches your server's port
 
@@ -7,6 +9,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('Connecting...');
+  const [currentStreamedResponse, setCurrentStreamedResponse] = useState(''); // New state for streamed content
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -17,23 +20,30 @@ function App() {
 
     socket.on('connect', () => {
       setStatus('Connected to server.');
-      console.log('Connected to WebSocket server');
     });
 
     socket.on('disconnect', () => {
       setStatus('Disconnected from server.');
-      console.log('Disconnected from WebSocket server');
     });
 
     socket.on('error', (err) => {
       setStatus(`Error: ${err.message || err}`);
-      console.error('WebSocket error:', err);
       setMessages((prevMessages) => [...prevMessages, { role: 'system', content: `Error: ${err.message || JSON.stringify(err)}`, type: 'error' }]);
     });
 
     socket.on('status', (data) => {
       setStatus(data.message);
-      console.log('Server Status:', data.message);
+    });
+
+    socket.on('clearChatChunks', () => {
+      setCurrentStreamedResponse('');
+    });
+
+    socket.on('chatChunk', (data) => {
+      setCurrentStreamedResponse((prev) => {
+        console.log('Client received chatChunk:', data.content); // Re-added log
+        return prev + data.content;
+      });
     });
 
     socket.on('toolCall', (data) => {
@@ -51,7 +61,14 @@ function App() {
     });
 
     socket.on('finalResponse', (data) => {
-      setMessages((prevMessages) => [...prevMessages, { role: 'ai', content: data.content, type: 'finalResponse' }]);
+      let finalMessageContent;
+      if (currentStreamedResponse) {
+        finalMessageContent = currentStreamedResponse;
+      } else {
+        finalMessageContent = data.content;
+      }
+      setMessages((prevMessages) => [...prevMessages, { role: 'ai', content: finalMessageContent, type: 'finalResponse' }]);
+      setCurrentStreamedResponse(''); // Clear the streamed response after finalizing
       setStatus('Ready.');
     });
 
@@ -61,7 +78,7 @@ function App() {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // Scroll to bottom of messages div
@@ -80,25 +97,15 @@ function App() {
       setStatus('Sending message...');
     } else {
       setStatus('Not connected to server.');
-      console.error('Socket not connected.');
       setMessages((prevMessages) => [...prevMessages, { role: 'system', content: 'Error: Not connected to server.', type: 'error' }]);
     }
   };
 
   const getMessageStyle = (msg) => {
-    let backgroundColor = '#f1f0f0'; // Default for AI/system
     let textAlign = 'left';
-    let color = '#000';
 
     if (msg.role === 'user') {
-      backgroundColor = '#dcf8c6';
       textAlign = 'right';
-    } else if (msg.type === 'toolCall' || msg.type === 'toolResult') {
-      backgroundColor = '#e0e0e0';
-      color = '#555';
-    } else if (msg.type === 'error') {
-      backgroundColor = '#ffcccc';
-      color = '#cc0000';
     }
 
     return {
@@ -124,6 +131,9 @@ function App() {
     } else if (msg.type === 'error') {
       backgroundColor = '#ffcccc';
       color = '#cc0000';
+    } else if (msg.type === 'streaming') {
+      backgroundColor = '#e6f7ff'; // Light blue for streaming
+      color = '#000';
     }
 
     return {
@@ -144,10 +154,17 @@ function App() {
         {messages.map((msg, index) => (
           <div key={index} style={getMessageStyle(msg)}>
             <div style={getBubbleStyle(msg)}>
-              {msg.content}
+              {msg.role === 'ai' || msg.type === 'finalResponse' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown> : msg.content}
             </div>
           </div>
         ))}
+        {currentStreamedResponse && (
+          <div style={getMessageStyle({ role: 'ai', type: 'streaming' })}>
+            <div style={getBubbleStyle({ role: 'ai', type: 'streaming' })}>
+              {currentStreamedResponse}
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
       <div style={{ padding: '8px', backgroundColor: '#eee', borderRadius: '5px', marginBottom: '10px', fontSize: '0.9em', color: '#555' }}>
